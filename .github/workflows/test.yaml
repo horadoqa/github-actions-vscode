@@ -1,0 +1,99 @@
+name: Teste de API - ServeRest
+
+on:
+  # Executa todos os dias às 09:00 no horário de Brasília (12:00 UTC)
+  schedule:
+    - cron: "0 12 * * *"
+
+  # Permite executar manualmente pelo GitHub
+  workflow_dispatch:
+
+# Permite que o GitHub Actions faça commit no repositório
+permissions:
+  contents: write
+
+jobs:
+
+  # ======================================
+  # JOB 1 - Executar testes
+  # ======================================
+
+  api-test:
+    name: Executar testes CRUD da API
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Dar permissão ao script
+        run: chmod +x teste/automatizado.sh
+
+      - name: Executar testes CRUD
+        run: teste/automatizado.sh
+
+
+  # ======================================
+  # JOB 2 - Registrar log
+  # ======================================
+
+  registrar-log:
+    name: Registrar resultado da execução
+    runs-on: ubuntu-latest
+
+    # Executa mesmo se api-test falhar
+    if: always()
+
+    # Aguarda o término do job de teste
+    needs: api-test
+
+    steps:
+
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Gerar log.json
+        env:
+          STATUS: ${{ needs.api-test.result }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          DATA=$(TZ=America/Sao_Paulo date '+%Y-%m-%d:%H:%M')
+
+          if [ "$STATUS" = "success" ]; then
+            STATUS_LOG="OK"
+          else
+            STATUS_LOG="ERRO"
+          fi
+
+          cat > log.json <<EOF
+          {
+            "executado": "$DATA",
+            "status": "$STATUS_LOG",
+            "run_id": "$RUN_ID",
+            "branch": "$BRANCH"
+          }
+          EOF
+
+          echo "Log gerado:"
+          cat log.json
+
+      - name: Commit do log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add log.json
+
+          if git diff --cached --quiet; then
+            echo "Nenhuma alteração no log."
+          else
+            git commit -m "chore: atualizar log da execução"
+            git push
+          fi
